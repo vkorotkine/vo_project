@@ -1,0 +1,32 @@
+services:
+  vio_project:
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    image: vio_project
+    container_name: vio_project_container
+    tty: true
+    stdin_open: true
+    privileged: true
+    devices:
+      - "/dev/dri:/dev/dri"
+    environment:
+      - XDG_RUNTIME_DIR=/tmp
+      - DISPLAY=${DISPLAY}
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ${HOME}/.Xauthority:/root/.Xauthority:rw
+      - ${HOME}/projects/vio_project:/home/vio_ws/src/vio_project
+      - ${HOME}/.vscode_container/extensions:/root/.vscode-server/extensions
+      - ${HOME}/projects/datasets:/home/datasets
+      - ${HOME}/projects/decar_codebases:/home/decar_codebases
+      - ${HOME}/projects/vio_project/docker/vscode_container:/home/vio_ws/src/vio_project/.vscode
+
+
+    working_dir: /home/vio_ws
+    # network_mode: host
+    # ipc: host
+    shm_size: 2gb
+    command: ["/bin/bash"]
+
