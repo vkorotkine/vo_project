@@ -123,13 +123,17 @@ RUN pip3 install --no-cache-dir "numpy<2" \
 
 RUN pip install --upgrade pip setuptools wheel packaging
 
-
-
 WORKDIR /root
 RUN git clone https://github.com/decargroup/navlie.git \
     && git clone https://github.com/vkorotkine/estimation_evaluation_toolbox.git
 
 RUN echo "numpy<2" > /tmp/constraints.txt
+
+# Remove stale apt-installed matplotlib that shadows the pip one (docstring ImportError)
+RUN apt-get remove -y python3-matplotlib || true
+
+# Fix setuptools/packaging mismatch (canonicalize_version TypeError)
+RUN pip install -c /tmp/constraints.txt "packaging>=23.2"
 
 RUN pip install -c /tmp/constraints.txt -e /root/navlie \
     && pip install -c /tmp/constraints.txt -e /root/estimation_evaluation_toolbox

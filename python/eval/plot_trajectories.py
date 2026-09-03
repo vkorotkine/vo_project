@@ -21,6 +21,8 @@ def main(args):
         args.traj_file, C_ba=False, jpl=False
     )
 
+    max_t = state_list_est[-1].stamp
+    state_list_gt = [s for s in state_list_gt if s.stamp < max_t]
     fig, axs = nv_utils.plot_poses(
         state_list_gt, arrow_length=0.01, step=20, label="GT"
     )

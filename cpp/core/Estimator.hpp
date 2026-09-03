@@ -23,17 +23,18 @@ downsample_to_grid(const slam_types::ImageFeatures &feats,
                    int subsample_grid_height, int subsample_grid_width,
                    int num_pts_per_cell);
 
-inline Eigen::Matrix3d C_ZFtoXF() {
-  // Camera frame is z forward, x right, y down.
-  // Typical SLAM frame is
-  // x forward, y left, z up.
-  // So we convert at the end.
-  // x -> -y, y -> -z, z-> x
+// Camera vs X forward convention caused bugs, so taking it out for now
+// inline Eigen::Matrix3d C_ZFtoXF() {
+//   // Camera frame is z forward, x right, y down.
+//   // Typical SLAM frame is
+//   // x forward, y left, z up.
+//   // So we convert at the end.
+//   // x -> -y, y -> -z, z-> x
 
-  Eigen::Matrix3d C_C1toC; // where C is x-forward camera frame.
-  C_C1toC << 0, 0, 1, -1, 0, 0, 0, -1, 0;
-  return C_C1toC;
-}
+//   Eigen::Matrix3d C_C1toC; // where C is x-forward camera frame.
+//   C_C1toC << 0, 0, 1, -1, 0, 0, 0, -1, 0;
+//   return C_C1toC;
+// }
 inline Eigen::Vector3d backproject(const Eigen::Vector2d &uv, double depth,
                                    slam_types::CameraIntrinsics intrinsics) {
   // depth in meters. uv in pixels.
@@ -52,8 +53,7 @@ inline Eigen::Vector3d backproject(const Eigen::Vector2d &uv, double depth,
   double x = (uv[0] - intrinsics.cx) / intrinsics.fx * depth;
   double y = (uv[1] - intrinsics.cy) / intrinsics.fy * depth;
   Eigen::Vector3d p_LinC1 = Eigen::Vector3d{x, y, depth};
-  Eigen::Matrix3d C_C1toC = C_ZFtoXF();
-  return C_C1toC * p_LinC1;
+  return p_LinC1;
 }
 
 struct PnPResult {

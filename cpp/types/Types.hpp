@@ -12,14 +12,18 @@
 #include <map>
 #include <string>
 
+// TODO: Need T_BtoA notation
+// T_ab inconsistent
 namespace slam_types {
 struct Frame {
   double timestamp;
   cv::Mat rgb;
   cv::Mat depth; // depth map in meters
   Frame(double timestamp_, const cv::Mat &rgb_,
-        const cv::Mat &depth_ = cv::Mat())
-      : timestamp(timestamp_), rgb(rgb_), depth(depth_){};
+        const cv::Mat &depth_ = cv::Mat(), const lie::SE3 &T_ab_ = lie::SE3())
+      : timestamp(timestamp_), rgb(rgb_), depth(depth_), T_ab(T_ab_){};
+
+  lie::SE3 T_ab; // camera to world.
 };
 
 inline std::ostream &operator<<(std::ostream &os,

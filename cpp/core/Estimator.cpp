@@ -260,7 +260,6 @@ Estimator::global_pose_PnP(const slam_types::ImageFeatures &image_feats,
     slam_types::LandmarkId lndmrk_id =
         keyframe.feature_to_landmark(kf_feat_idx);
     const Eigen::Vector3d l =
-        C_ZFtoXF().transpose() *
         landmarks.at(lndmrk_id).position; // RANSAC needs Z forward.
     const Eigen::Vector2d &uv = image_feats.uv.at(current_frame_feat_idx);
     pnp_landmarks.emplace_back(l.x(), l.y(), l.z());
@@ -352,9 +351,13 @@ Estimator::process_features(const slam_types::ImageFeatures &image_feats) {
         slam_types::LandmarkId lndmrk_id =
             slam_types::increment_id(latest_landmark_id);
         latest_landmark_id = lndmrk_id;
+
+        Eigen::Vector3d p_LinC = backproject_(uv, depth);
+
+        // Backproject to obtain p_LinC
         slam_types::Landmark lndmrk(
-            lndmrk_id, backproject_(uv, depth),
-            std::vector<slam_types::KeyframeId>{key_id});
+            lndmrk_id, p_LinC, std::vector<slam_types::KeyframeId>{key_id});
+
         landmarks.emplace(lndmrk_id, lndmrk);
         // std::cout << "Inserting: Feat ID: " << downsampled.ids.at(i) << ", "
         //           << static_cast<std::uint64_t>(lndmrk_id) << std::endl;

@@ -1,0 +1,33 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build/Run Main",
+      "type": "shell",
+      "command": "cd /home/vio_ws/src/vio_project && cmake --build --preset debug && /home/vio_ws/src/vio_project/build/cpp/app/main && python3 /home/vio_ws/src/vio_project/python/eval/plot_trajectories.py",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    }, 
+    {
+      "label": "Build/Run Integration Test",
+      "type": "shell",
+      "command": "cd /home/vio_ws/src/vio_project && cmake --build --preset debug && /home/vio_ws/src/vio_project/build/cpp/tests/integration_tests",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

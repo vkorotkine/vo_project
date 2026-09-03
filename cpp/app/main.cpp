@@ -33,13 +33,16 @@ int main() {
 
   std::filesystem::path output_dir(cfg.estimator_options.output_dir);
   std::ofstream out(output_dir / "output.txt");
-  if (!out)
-    throw std::runtime_error("Failed to create output file. ");
+  if (!out) {
+    std::stringstream err;
+    err << "Failed to create output file in" << output_dir;
+    throw std::runtime_error(err.str());
+  }
   out << " # time (s) x, y, z, qw, qx, qy, qz,  Hamilton convention. Reference "
          "frames: C_CtoW, p_CinW. TUM format. "
       << std::endl;
 
-  int num_frames = 200;
+  int num_frames = 300;
   int frame_idx = 0;
 
   while (auto frame = ds->next()) {

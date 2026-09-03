@@ -281,6 +281,7 @@ template <typename G> struct State {
     os << stamp << " " << x.to_line();
     return os.str();
   }
+  State() = default;
   State(double stamp_, G x_) : stamp(stamp_), x(x_) {}
   static State from_line(std::string str) {
     std::istringstream is(str);

@@ -61,6 +61,7 @@ TumDataset::TumDataset(const slam_core::DataOptions &data_options) {
   ds_path = std::filesystem::path(data_options.path);
   std::filesystem::path rgb_path = ds_path / "rgb.txt";
   std::filesystem::path depth_path = ds_path / "depth.txt";
+  std::filesystem::path gt_path = ds_path / "groundtruth.txt";
 
   if (!std::filesystem::exists(rgb_path)) {
     std::cout << "RGB Path: " << rgb_path << std::endl;
@@ -71,9 +72,11 @@ TumDataset::TumDataset(const slam_core::DataOptions &data_options) {
 
   std::vector<std::pair<double, std::string>> rgb_entries;
   std::vector<std::pair<double, std::string>> depth_entries;
+  std::vector<SE3State> states;
 
   rgb_entries = readStampPathFile(rgb_path);
   depth_entries = readStampPathFile(depth_path);
+  states = readPoseFile(gt_path);
 
   for (const auto &rgb_entry : rgb_entries) {
     double rgb_timestamp = rgb_entry.first;
@@ -89,7 +92,19 @@ TumDataset::TumDataset(const slam_core::DataOptions &data_options) {
     double dt = std::abs(closest->first - rgb_timestamp);
     if (dt > data_options.association_tol)
       continue;
-    Entry entry = Entry{rgb_entry.first, rgb_entry.second, closest->second};
+
+    auto closest_gt =
+        std::min_element(states.begin(), states.end(),
+                         [rgb_timestamp](const SE3State &a, const SE3State &b) {
+                           return (std::abs(a.stamp - rgb_timestamp) <
+                                   std::abs(b.stamp - rgb_timestamp));
+                         });
+    double dt_gt = std::abs(closest_gt->stamp - rgb_timestamp);
+    if (dt_gt > data_options.association_tol)
+      return;
+
+    Entry entry = Entry{rgb_entry.first, rgb_entry.second, closest->second,
+                        closest_gt->x};
     // std::cout << entry << std::endl;
     entries.push_back(entry);
   }

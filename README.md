@@ -14,4 +14,23 @@ cmake --build --preset debug   # build
 /home/vio_ws/src/vio_project/build/cpp/app/main
 
 # Tests
+Unit, 
+```
 /home/vio_ws/src/vio_project/build/cpp/tests/unit_tests
+```
+Integration, 
+```
+/home/vio_ws/src/vio_project/build/cpp/tests/integration_tests
+```
+
+# Plot
+```
+python3 /home/vio_ws/src/vio_project/python/eval/plot_trajectories.py
+```
+
+# All together
+```
+cmake --build --preset debug
+/home/vio_ws/src/vio_project/build/cpp/app/main
+python3 /home/vio_ws/src/vio_project/python/eval/plot_trajectories.py
+```

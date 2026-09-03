@@ -43,6 +43,7 @@ struct Entry {
   double stamp;
   std::string rgb_path;
   std::string depth_path;
+  lie::SE3 T_BtoA; // world to cam
 };
 
 inline std::ostream &operator<<(std::ostream &os, const Entry &entry) {
@@ -52,6 +53,8 @@ inline std::ostream &operator<<(std::ostream &os, const Entry &entry) {
 }
 
 class TumDataset : public Dataset {
+  using SE3State = lie::State<lie::SE3>;
+
 public:
   ~TumDataset() override = default;
   std::optional<slam_types::Frame> next() override;
@@ -59,7 +62,8 @@ public:
   slam_types::CameraIntrinsics intrinsics() const override;
 
   explicit TumDataset(const slam_core::DataOptions &data_options);
-  std::vector<std::pair<double, std::string>>
+
+  static std::vector<std::pair<double, std::string>>
   readStampPathFile(const std::filesystem::path &path) {
     std::vector<std::pair<double, std::string>>
         img_entries; // just stamp + path
@@ -78,6 +82,20 @@ public:
       }
     }
     return img_entries;
+  }
+
+  static std::vector<SE3State>
+  readPoseFile(const std::filesystem::path &fpath) {
+    // Assume first column is timestamp
+    std::vector<SE3State> states;
+    std::ifstream file(fpath);
+    std::string line;
+    while (getline(file, line)) {
+      if (line.empty() || line[0] == '#')
+        continue;
+      states.push_back(SE3State::from_line(line));
+    }
+    return states;
   }
 
   const std::vector<Entry> &get_entries() const { return entries; }
