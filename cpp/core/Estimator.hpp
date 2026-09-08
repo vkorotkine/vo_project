@@ -93,9 +93,15 @@ public:
                               opts.downsample.grid_num_points_per_cell);
   }
 
+  const std::unordered_map<slam_types::LandmarkId, slam_types::Landmark> &
+  get_landmarks() {
+    return landmarks;
+  }
+
 private:
   slam_core::EstimatorOptions opts;
   std::vector<slam_types::Keyframe> keyframes;
+  std::unordered_map<slam_types::KeyframeId, int> kf_id_to_index;
   int num_frames_since_last_kf = 0;
 
   slam_types::LandmarkId latest_landmark_id{0};

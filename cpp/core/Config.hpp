@@ -20,9 +20,33 @@ public:
     int grid_num_points_per_cell = 20;
   };
 
+  // If we move a lot, new keyframe.
+  // If a lot of frames passed since last frame, new keyframe.
+  // If too few RANSAC inliers, new frame.
   struct KeyFrameInsertion {
-    int frames_since_last_kf = 10;
+    int frames_since_last_kf = 30;
+    double covisibility_ratio =
+        0.7; // once covisibility drops beneath this, new keyframe.
+    int ransac_inlier_count = 50;
   };
+
+  struct LandmarkCulling {
+
+    // if we see a landmark, but dont see it at least
+    // min_num_observations times in the span of
+    // num_frames_before_drop frames,
+    // we drop it.
+    int num_frames_before_drop = 10;
+    int min_num_observations = 2;
+  };
+
+  struct Matching {
+    bool mutual_consistency = false;
+    double lowe_ratio = 0.95;
+    // bool mutual_consistency = true;
+    // double lowe_ratio = 0.99;
+  };
+
   EstimatorOptions(std::string estimator_type_,
                    int init_num_valid_depth_features_, std::string output_dir_)
       : estimator_type(estimator_type_),
@@ -35,6 +59,8 @@ public:
   RansacPnP ransac_pnp;
   Downsample downsample;
   KeyFrameInsertion keyframe_opts;
+  Matching matching_opts;
+  LandmarkCulling lndmrk_culling;
 };
 
 struct DataOptions {

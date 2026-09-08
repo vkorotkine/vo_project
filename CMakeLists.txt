@@ -11,6 +11,11 @@ FetchContent_Declare(googletest
   GIT_TAG        v1.14.0)
 FetchContent_MakeAvailable(googletest)
 
+include(FetchContent)
+FetchContent_Declare(rerun_sdk URL
+  https://github.com/rerun-io/rerun/releases/latest/download/rerun_cpp_sdk.zip)
+FetchContent_MakeAvailable(rerun_sdk)
+
 enable_testing()
 add_subdirectory(cpp)
 add_subdirectory(cpp/tests)

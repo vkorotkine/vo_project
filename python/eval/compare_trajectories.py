@@ -11,6 +11,8 @@ from typing import List, Union
 from pymlg import SO3, SE3, SE23
 import numpy as np
 from pathlib import Path
+import metrics
+import alignment
 
 
 def main(args):
@@ -20,6 +22,8 @@ def main(args):
     state_list_est: List[nv_states.SE3State] = load_from_tum_format(
         args.traj_file, C_ba=False, jpl=False
     )
+
+    state_list_est = alignment.align_sensor_traj_to_gt(state_list_gt, state_list_est)
 
     max_t = state_list_est[-1].stamp
     state_list_gt = [s for s in state_list_gt if s.stamp < max_t]
@@ -46,6 +50,13 @@ def main(args):
     )
 
     plt.savefig(Path(args.output_dir) / "trajectory_comp_2d.pdf")
+
+    ape_rot_error, ape_pos_error = metrics.compute_ape(state_list_gt, state_list_est)
+
+    max_t = state_list_gt[-1].stamp - state_list_gt[0].stamp
+    print(f"Max time {max_t:.2f}")
+    print(f"APE Rotation Error (deg): {ape_rot_error:.2f}")
+    print(f"APE Position Error (m): {ape_pos_error:.2f}")
 
 
 def load_from_tum_format(

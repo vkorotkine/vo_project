@@ -48,6 +48,23 @@ public:
   bool value_present(const V &val) const { return rev_map.count(val) > 0; }
   size_t size() const { return fwd_map.size(); }
 
+  void delete_value(const V &val) {
+    if (!rev_map.count(val))
+      throw std::runtime_error("Bimap, Val being deleted not in Bimap!");
+    K key = rev_map.at(val);
+    rev_map.erase(val);
+    fwd_map.erase(key);
+  }
+
+  void delete_key(const K &key) {
+    if (!fwd_map.count(key))
+      throw std::runtime_error("Bimap, Key being deleted not in Bimap!");
+
+    V val = fwd_map.at(key);
+    rev_map.erase(val);
+    fwd_map.erase(key);
+  }
+
   const std::unordered_map<K, V> &forward_map() const { return fwd_map; }
   const std::unordered_map<V, K> &reverse_map() const { return rev_map; }
 

@@ -24,13 +24,18 @@ Integration,
 ```
 
 # Plot
+The eval stack (navlie) needs numpy<2, so it lives in an isolated venv.
 ```
-python3 /home/vio_ws/src/vio_project/python/eval/plot_trajectories.py
+/opt/eval-venv/bin/python3 /home/vio_ws/src/vio_project/python/eval/compare_trajectories.py
 ```
 
 # All together
 ```
 cmake --build --preset debug
 /home/vio_ws/src/vio_project/build/cpp/app/main
-python3 /home/vio_ws/src/vio_project/python/eval/plot_trajectories.py
+/opt/eval-venv/bin/python3 /home/vio_ws/src/vio_project/python/eval/plot_trajectories.py
 ```
+
+# Visualization with Rerun
+Rerun (system Python, numpy>=2) does not play well with the host display from inside
+Docker. The log is saved and then visualized on the host.

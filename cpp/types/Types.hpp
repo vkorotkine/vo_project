@@ -162,6 +162,7 @@ struct Landmark {
   LandmarkId id;
   Eigen::Vector3d position;
   std::vector<KeyframeId> observed_in;
+  int num_frames_since_last_obs = 0;
   Landmark(LandmarkId id_, Eigen::Vector3d position_,
            std::vector<KeyframeId> observed_in_)
       : id(id_), position(position_), observed_in(observed_in_){};
@@ -183,6 +184,7 @@ struct Keyframe {
   void add_landmark_feature_correspondence(LandmarkId l_idx, size_t feat_idx) {
     Feat2Landmark.insert(feat_idx, l_idx);
   }
+  void delete_landmark(LandmarkId l_idx) { Feat2Landmark.delete_value(l_idx); }
 
   LandmarkId feature_to_landmark(const size_t &feat_idx) const {
     return Feat2Landmark.forward(feat_idx);
@@ -206,8 +208,6 @@ struct Keyframe {
   ImageFeatures features;
 
   // This should probably be private. Being lazy with the printing.
-  // std::unordered_map<size_t, LandmarkId> featIdx2Landmark;
-  // std::unordered_map<LandmarkId, size_t> Landmark2featIdx;
   slam_utils::Bimap<size_t, LandmarkId> Feat2Landmark;
 };
 

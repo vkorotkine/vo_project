@@ -198,23 +198,10 @@ Estimator::global_pose_PnP(const slam_types::ImageFeatures &image_feats,
   // Pos) -> Keyframe feature ID (+ Descriptor) -> Current image features
   // (descriptor, pixel coord)
 
-  // std::vector<int> query_idx,
-  // train_idx; // query: new frame. train: keyframe.
-
-  // std::unordered_map<int, int> query2train = match(
-  // image_feats.descriptors, keyframe.features.descriptors, false, 0.75);
-
-  // Multiple query points can be matched onto the same train point.
-  // But we are doing mutual consistency... So its 1to1.
-  std::unordered_map<int, int> query2train =
-      match(image_feats.descriptors, keyframe.features.descriptors, true, 0.99);
+  std::unordered_map<int, int> query2train = match(
+      image_feats.descriptors, keyframe.features.descriptors,
+      opts.matching_opts.mutual_consistency, opts.matching_opts.lowe_ratio);
   // Lowe Test: Check if next match is very similar.
-
-  // somewhere in here we need to update the landmarks
-  // and maybe the keyframe??? So would need to return correspondence.
-
-  // we lose train/query index and thus the mapping to imagefeatures here.
-  // or actually can keep track of this here...
   std::vector<cv::Point3d> pnp_landmarks;
   std::vector<cv::Point2d> pnp_uv;
   std::vector<int> unmatched_features;
@@ -243,10 +230,6 @@ Estimator::global_pose_PnP(const slam_types::ImageFeatures &image_feats,
   cv::Mat K_cv;
   cv::eigen2cv(intrinsics.K(), K_cv);
 
-  // We separate out unmatched features.
-  // But we still want to get inlier indices for the image features, since we
-  // want matched correspondences pixels/landmarks.
-
   // a) Frame of landmark provided to PnP - world frame.
   // b) Resultant frame transformation vs the one we keep track of - world
   // frame. Ok.
@@ -257,10 +240,10 @@ Estimator::global_pose_PnP(const slam_types::ImageFeatures &image_feats,
   for (const auto &[current_frame_feat_idx, kf_feat_idx] : query2train) {
     if (!keyframe.feature_is_landmark(kf_feat_idx))
       continue;
+
     slam_types::LandmarkId lndmrk_id =
         keyframe.feature_to_landmark(kf_feat_idx);
-    const Eigen::Vector3d l =
-        landmarks.at(lndmrk_id).position; // RANSAC needs Z forward.
+    const Eigen::Vector3d &l = landmarks.at(lndmrk_id).position;
     const Eigen::Vector2d &uv = image_feats.uv.at(current_frame_feat_idx);
     pnp_landmarks.emplace_back(l.x(), l.y(), l.z());
     pnp_uv.emplace_back(uv.x(), uv.y());
@@ -340,9 +323,6 @@ Estimator::process_features(const slam_types::ImageFeatures &image_feats) {
 
       slam_types::ImageFeatures downsampled = downsample_to_grid_(image_feats);
 
-      std::cout << "Initialization, downsampled feats: "
-                << downsampled.uv.size() << std::endl;
-
       for (size_t i = 0; i < downsampled.uv.size(); i++) {
         double depth = downsampled.depths.at(i);
         if (std::isnan(depth))
@@ -367,6 +347,7 @@ Estimator::process_features(const slam_types::ImageFeatures &image_feats) {
 
       std::cout << kf << std::endl;
       keyframes.push_back(kf);
+      kf_id_to_index[kf.id] = keyframes.size() - 1;
       return SE3State{image_feats.stamp, lie::SE3{}};
     } else {
       std::cout << "Num valid features: " << n_valid << " less than "
@@ -381,14 +362,36 @@ Estimator::process_features(const slam_types::ImageFeatures &image_feats) {
 
   if (result.ok()) {
     lie::SE3 T_CtoW = *(result.T);
+    int num_correspondences = result.matched_correspondences.size();
+    double covis_ratio = static_cast<double>(num_correspondences) /
+                         keyframes.back().Feat2Landmark.size();
+    bool low_overlap = covis_ratio <= opts.keyframe_opts.covisibility_ratio;
 
-    // add keyframe
-    num_frames_since_last_kf++;
-    if (num_frames_since_last_kf >= opts.keyframe_opts.frames_since_last_kf) {
+    bool keyframe_add =
+        (num_frames_since_last_kf >= opts.keyframe_opts.frames_since_last_kf ||
+         (low_overlap &&
+          num_correspondences >= opts.keyframe_opts.ransac_inlier_count));
+    std::cout << "Conditions : "
+              << "Num Frames: " << num_frames_since_last_kf << " vs "
+              << opts.keyframe_opts.frames_since_last_kf
+              << ", Covisibility Ratio: "
+              << result.matched_correspondences.size() << "/"
+              << keyframes.back().Feat2Landmark.size() << "=" << covis_ratio
+              << " vs " << opts.keyframe_opts.covisibility_ratio << std::endl;
+
+    if (keyframe_add)
+      std::cout << "Adding Keyframe.";
+    else
+      std::cout << "No Keyframe Added.";
+
+    std::cout << std::endl << std::endl;
+
+    if (keyframe_add) {
       num_frames_since_last_kf = 0;
-      std::cout << std::endl << "--------------------" << std::endl;
-      std::cout << "Adding Keyframe " << std::endl;
-      std::cout << "--------------------" << std::endl;
+
+      // this is a little bit annoying because
+      // creating kf has to be done in lockstep w/
+      // updating keyframe ids.
       slam_types::KeyframeId kf_id{
           static_cast<std::uint64_t>(keyframes.back().id) + 1};
 
@@ -396,31 +399,45 @@ Estimator::process_features(const slam_types::ImageFeatures &image_feats) {
 
       keyframes.emplace_back(kf_id, T_CtoW, image_feats,
                              result.matched_correspondences);
+      kf_id_to_index[kf_id] = keyframes.size() - 1;
 
       // update the old landmarks that they have
       // been observed in this keyframe
+
+      for (auto &[id, lndmrk] : landmarks)
+        lndmrk.num_frames_since_last_obs++;
+
       for (const auto &[feat_idx, lndmrk_idx] :
            result.matched_correspondences.forward_map()) {
         landmarks.at(lndmrk_idx).observed_in.emplace_back(kf_id);
+        landmarks.at(lndmrk_idx).num_frames_since_last_obs = 0;
       }
 
-      // initialize new landmarks
-      // need to do frame transformation..
-      // TODO: need to figure out how to do this by reference at some point.
+      // Cull landmarks
+      // Have not seen landmark many times +
+      // have not seen landmark in a while
+      std::vector<slam_types::LandmarkId> lndmrks_to_erase;
 
-      // So this has to mean the feature was matched already??
-      /// baaa the indices
+      for (auto &[lndmrk_id, lndmrk] : landmarks) {
+        bool delete_landmark = lndmrk.observed_in.size() <
+                                   opts.lndmrk_culling.min_num_observations &&
+                               lndmrk.num_frames_since_last_obs >
+                                   opts.lndmrk_culling.num_frames_before_drop;
+        if (delete_landmark)
+          lndmrks_to_erase.push_back(lndmrk_id);
+      }
+
+      for (const auto &lndmrk_id : lndmrks_to_erase) {
+        for (const auto &kf_id : landmarks.at(lndmrk_id).observed_in) {
+          int kf_index = kf_id_to_index.at(kf_id);
+          keyframes.at(kf_index).delete_landmark(lndmrk_id);
+        }
+        landmarks.erase(lndmrk_id);
+      }
 
       slam_types::ImageFeatures unmatched_all =
           image_feats.get_subset(result.unmatched_features);
       slam_types::ImageFeatures unmatched = downsample_to_grid_(unmatched_all);
-
-      // const std::unordered_map<size_t, slam_types::LandmarkId> &m =
-      //     keyframes.back().Feat2Landmark.forward_map();
-
-      // auto it = m.find(feat);
-      // if (it != m.end())
-      //   throw std::runtime_error("Matched feat found in unmatched.");
 
       for (size_t i = 0; i < unmatched.uv.size(); i++) {
         double depth = unmatched.depths.at(i);
@@ -433,35 +450,19 @@ Estimator::process_features(const slam_types::ImageFeatures &image_feats) {
         slam_types::Landmark lndmrk(lndmrk_id, T_CtoW * backproject_(uv, depth),
                                     std::vector<slam_types::KeyframeId>{kf_id});
         landmarks.emplace(lndmrk_id, lndmrk);
-        // std::cout << "Landmark ID: " << static_cast<std::uint64_t>(lndmrk_id)
+        // std::cout << "Landmark ID: " <<
+        // static_cast<std::uint64_t>(lndmrk_id)
         //           << " Feat ID " << unmatched.ids.at(i) << std::endl;
         keyframes.back().add_landmark_feature_correspondence(
             lndmrk_id, unmatched.ids.at(i));
       }
-
-      // for (const int &inlier_idx : result.unmatched_features) {
-      //   double depth = image_feats.depths.at(inlier_idx);
-      //   if (std::isnan(depth))
-      //     continue;
-
-      //   const Eigen::Vector2d &uv = image_feats.uv.at(inlier_idx);
-      //   Eigen::Vector3d l = backproject_(uv, depth);
-      //   slam_types::LandmarkId lndmrk_id =
-      //       slam_types::increment_id(latest_landmark_id);
-      //   latest_landmark_id = lndmrk_id;
-      //   slam_types::Landmark lndmrk(lndmrk_id, T_CtoW * backproject_(uv,
-      //   depth),
-      //                               std::vector<slam_types::KeyframeId>{kf_id});
-      //   landmarks.emplace(lndmrk_id, lndmrk);
-      //   keyframes.back().add_landmark_feature_correspondence(lndmrk_id,
-      //                                                        inlier_idx);
-      // }
 
       // add landmarks to keyframe
     }
 
     return SE3State(image_feats.stamp, T_CtoW);
   } else {
+    std::cout << "PnP Failed, returining nullopt" << std::endl;
     return std::nullopt;
   }
 }
