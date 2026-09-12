@@ -156,8 +156,8 @@ struct SE3 {
     p = T.block<3, 1>(0, 3);
   }
   static SE3 Exp(const Tangent &xi) {
-    Eigen::Vector3d phi = xi.block<3, 1>(0, 0);
-    Eigen::Vector3d rho = xi.block<3, 1>(3, 0);
+    // Eigen::Vector3d phi = xi.block<3, 1>(0, 0);
+    // Eigen::Vector3d rho = xi.block<3, 1>(3, 0);
 
     return SE3{SO3::Eye(), Eigen::Vector3d::Zero()};
   }

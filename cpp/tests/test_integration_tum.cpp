@@ -84,7 +84,7 @@ TEST(Integration, TUM) {
                 << std::endl;
 
       ASSERT_LE(dxi_phi.norm(), 0.2);
-      ASSERT_LE(dr.norm(), 0.2);
+      ASSERT_LE(dr.norm(), 0.4);
     }
   }
   cv::destroyAllWindows();

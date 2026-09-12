@@ -57,18 +57,6 @@ RUN git clone --depth 1 --branch 4.2.1 https://github.com/borglab/gtsam.git /tmp
     && ldconfig \
     && rm -rf /tmp/gtsam
 
-# ---------------------------------------------------------------------------
-# ONNX Runtime (CPU) - prebuilt.
-# ---------------------------------------------------------------------------
-RUN wget -qO /tmp/ort.tgz \
-      https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRUNTIME_VERSION}/onnxruntime-linux-x64-${ONNXRUNTIME_VERSION}.tgz \
-    && mkdir -p /opt/onnxruntime \
-    && tar -xzf /tmp/ort.tgz -C /opt/onnxruntime --strip-components=1 \
-    && rm /tmp/ort.tgz \
-    && echo "/opt/onnxruntime/lib" > /etc/ld.so.conf.d/onnxruntime.conf \
-    && ldconfig
-
-ENV ONNXRUNTIME_ROOT=/opt/onnxruntime
 
 # ===========================================================================
 # TWO PYTHON ENVIRONMENTS - they need incompatible numpy versions.
@@ -86,6 +74,7 @@ RUN pip3 install --no-cache-dir --break-system-packages \
         rerun-sdk==0.37.1 \
         opencv-python-headless
 
+RUN apt update && apt install python3.10-venv
 # --- eval venv: navlie stack (numpy<2), fully isolated ---------------------
 RUN python3 -m venv /opt/eval-venv \
     && /opt/eval-venv/bin/pip install --no-cache-dir --upgrade pip setuptools wheel "packaging>=23.2" \

@@ -12,6 +12,20 @@
 #include <utility>
 #include <vector>
 
+#include <core/Checks.hpp>
+#include <gtsam/geometry/Cal3_S2.h>
+#include <gtsam/geometry/Cal3_S2Stereo.h>
+#include <gtsam/geometry/Point3.h>
+#include <gtsam/geometry/Pose3.h>
+#include <gtsam/inference/Symbol.h>
+#include <gtsam/linear/NoiseModel.h>
+#include <gtsam/nonlinear/LevenbergMarquardtOptimizer.h>
+#include <gtsam/nonlinear/NonlinearEquality.h>
+#include <gtsam/nonlinear/NonlinearFactorGraph.h>
+#include <gtsam/nonlinear/Values.h>
+#include <gtsam/slam/ProjectionFactor.h>
+#include <gtsam/slam/StereoFactor.h>
+
 namespace slam_core {
 
 slam_types::ImageFeatures
@@ -135,6 +149,228 @@ void Estimator::initialize_landmarks(
 
       kf.add_landmark_feature_correspondence(lndmrk_id, i);
       latest_landmark_id = lndmrk_id;
+    }
+  }
+}
+
+void Estimator::cullLandmarks() {
+
+  // Cull landmarks
+  // Have not seen landmark many times +
+  // have not seen landmark in a while
+  std::vector<slam_types::LandmarkId> lndmrks_to_erase;
+
+  for (auto &[lndmrk_id, lndmrk] : landmarks) {
+    bool delete_landmark =
+        lndmrk.observed_in.size() < opts.lndmrk_culling.min_num_observations &&
+        lndmrk.num_frames_since_last_obs >
+            opts.lndmrk_culling.num_frames_before_drop;
+    if (delete_landmark)
+      lndmrks_to_erase.push_back(lndmrk_id);
+  }
+
+  for (const auto &lndmrk_id : lndmrks_to_erase) {
+    for (const auto &kf_id : landmarks.at(lndmrk_id).observed_in) {
+      int kf_index = kf_id_to_index.at(kf_id);
+      keyframes.at(kf_index).delete_landmark(lndmrk_id);
+    }
+    landmarks.erase(lndmrk_id);
+  }
+}
+
+void Estimator::newLandmarksFromUnmatched(
+    const slam_types::ImageFeatures &unmatched, const lie::SE3 &T_CtoW,
+    const slam_types::KeyframeId &kf_id) {
+  for (size_t i = 0; i < unmatched.uv.size(); i++) {
+    double depth = unmatched.depths.at(i);
+    if (std::isnan(depth))
+      continue;
+    const Eigen::Vector2d &uv = unmatched.uv.at(i);
+    slam_types::LandmarkId lndmrk_id =
+        slam_types::increment_id(latest_landmark_id);
+    latest_landmark_id = lndmrk_id;
+    slam_types::Landmark lndmrk(lndmrk_id, T_CtoW * backproject_(uv, depth),
+                                std::vector<slam_types::KeyframeId>{kf_id});
+    landmarks.emplace(lndmrk_id, lndmrk);
+
+    keyframes.back().add_landmark_feature_correspondence(lndmrk_id,
+                                                         unmatched.ids.at(i));
+  }
+}
+
+void Estimator::bundleAdjustment() {
+  int num_frames =
+      std::min(keyframes.size(),
+               static_cast<size_t>(opts.bundle_adjustement.window_size));
+  std::cout << "Running bundle adjustement" << std::endl;
+  std::cout << "Num frames " << num_frames << std::endl;
+  std::cout << "Current number of keyframes " << keyframes.size() << std::endl;
+  if (num_frames < 2)
+    return;
+  using namespace gtsam;
+  using namespace slam_types;
+  using symbol_shorthand::L;
+  using symbol_shorthand::X;
+
+  Values values;
+  gtsam::NonlinearFactorGraph graph;
+
+  auto priorNoise = noiseModel::Isotropic::Sigma(6, 0.01);
+  // The interchangeability of landmarkId type and uint64_t
+  // is both convenient and annoying for gtsam
+
+  std::vector<uint64_t>
+      kf_optimized_indices; // indices of keyframes we will be changing
+
+  for (int i = 0; i < num_frames; i++) {
+    std::uint64_t idx = keyframes.size() - num_frames + i;
+    kf_optimized_indices.push_back(idx);
+  }
+  std::uint64_t last_kf_idx = kf_optimized_indices.back();
+
+  for (const auto &idx : kf_optimized_indices) {
+    const slam_types::Keyframe &kf = keyframes.at(idx);
+    std::uint64_t key_id = static_cast<std::uint64_t>(kf.id);
+    values.insert(X(key_id), Pose3(kf.pose.toMatrix()));
+
+    if (idx == kf_optimized_indices.at(0))
+      graph.add(
+          PriorFactor<Pose3>(X(key_id), Pose3(kf.pose.toMatrix()), priorNoise));
+
+    for (const auto &[feat_idx, lndmrk_id] : kf.Feat2Landmark.forward_map()) {
+
+      std::vector<KeyframeId> observed_current_window;
+      for (const auto &kf_id : landmarks.at(lndmrk_id).observed_in) {
+        if (static_cast<std::uint64_t>(kf_id) < last_kf_idx)
+          observed_current_window.push_back(kf_id);
+      }
+      if (observed_current_window.size() < 2)
+        continue;
+      // Need to figure out parallax
+      const Keyframe &kf1 =
+          keyframes.at(kf_id_to_index.at(observed_current_window.back()));
+      const Keyframe &kf2 =
+          keyframes.at(kf_id_to_index.at(observed_current_window.front()));
+      double parallax = (kf2.pose.p - kf1.pose.p).norm();
+
+      if (parallax < opts.bundle_adjustement.parallax_threshold)
+        continue;
+
+      std::uint64_t l_id = static_cast<std::uint64_t>(lndmrk_id);
+      if (!values.exists(L(l_id)))
+        values.insert(L(l_id), Point3(landmarks.at(lndmrk_id).position));
+    }
+  }
+
+  boost::shared_ptr<Cal3_S2> Kcal(new Cal3_S2(intrinsics.fx, intrinsics.fy, 0.,
+                                              intrinsics.cx, intrinsics.cy));
+  boost::shared_ptr<Cal3_S2Stereo> KcalStereo(new Cal3_S2Stereo(
+      intrinsics.fx, intrinsics.fy, 0., intrinsics.cx, intrinsics.cy,
+      opts.bundle_adjustement.fake_baseline_rgbd));
+
+  auto camNoise = noiseModel::Isotropic::Sigma(
+      2, opts.bundle_adjustement.pixel_noise_stdev);
+  auto stereoNoise =
+      noiseModel::Isotropic::Sigma(3, opts.bundle_adjustement.stereo_noise);
+
+  auto robustCamNoise = gtsam::noiseModel::Robust::Create(
+      gtsam::noiseModel::mEstimator::Huber::Create(1.3), camNoise);
+  auto robustStereoNoise = gtsam::noiseModel::Robust::Create(
+      gtsam::noiseModel::mEstimator::Huber::Create(1.3), stereoNoise);
+
+  for (const auto &key : values.keys()) {
+    Symbol s = Symbol(key);
+
+    if (s.chr() == 'l') {
+      std::uint64_t l_id = s.index();
+      LandmarkId lndmrk_id = static_cast<LandmarkId>(l_id);
+      const std::vector<KeyframeId> &observed_in =
+          landmarks.at(lndmrk_id).observed_in;
+
+      // Check the maximum parallax
+      // Doing N^2 combinations is meh so we will settle for comparing first &
+      // last observation
+
+      // Found landmark. Now loop through the keyframes it was seen from.
+      // Find the mesaurements of it.
+
+      int num_observations =
+          std::count_if(observed_in.begin(), observed_in.end(),
+                        [&last_kf_idx](KeyframeId id) {
+                          return static_cast<std::uint64_t>(id) < last_kf_idx;
+                        });
+      // std::cout << " Adding landmark " << gtsam::DefaultKeyFormatter(L(l_id))
+      //           << " with " << num_observations << " observations" <<
+      //           std::endl;
+      for (const KeyframeId &kf_id : observed_in) {
+
+        std::uint64_t k_id = static_cast<std::uint64_t>(kf_id);
+        if (k_id > last_kf_idx)
+          continue;
+        const Keyframe &kf = keyframes.at(kf_id_to_index.at(kf_id));
+        int feat_idx = kf.landmark_to_feature(lndmrk_id);
+        ImageFeature feat = kf.features.get_single_feature(feat_idx);
+        Eigen::Vector2d uv = feat.uv;
+        double depth = feat.depth;
+
+        // If kf_id is earlier than current window, add it, but mark as a
+        // constant in subsequent optimizatio
+
+        if (!values.exists(X(k_id))) {
+          values.insert(X(k_id), Pose3(kf.pose.toMatrix()));
+          graph.add(
+              NonlinearEquality<Pose3>(X(k_id), Pose3(kf.pose.toMatrix())));
+        }
+
+        Eigen::Vector3d p_LinC = intrinsics.backproject(uv, depth);
+        // std::cout << " Adding landmark" <<
+        // gtsam::DefaultKeyFormatter(L(l_id))
+        //           << " Depth " << depth << " uv " << uv.transpose()
+        //           << " Backprojection: " << p_LinC.transpose() << " Feat Idx"
+        //           << feat_idx << std::endl;
+        if (!std::isfinite(depth)) {
+          // No depth info
+          graph.add(GenericProjectionFactor<Pose3, Point3, Cal3_S2>(
+              uv, robustCamNoise, X(k_id), L(l_id), Kcal, true, true));
+        } else {
+          Eigen::Vector3d p_LinC = intrinsics.backproject(uv, depth);
+          double disp = intrinsics.fx *
+                        opts.bundle_adjustement.fake_baseline_rgbd / depth;
+          double uR = uv(0) - intrinsics.fx *
+                                  opts.bundle_adjustement.fake_baseline_rgbd /
+                                  depth;
+          StereoPoint2 spoint(uv(0), uR, uv(1));
+          graph.add(GenericStereoFactor<Pose3, Point3>(
+              spoint, robustStereoNoise, X(k_id), L(l_id), KcalStereo));
+        }
+      }
+    }
+  }
+  if (opts.test_mode)
+    checkGraphValues(graph, values);
+
+  gtsam::LevenbergMarquardtParams params;
+  params.maxIterations = opts.bundle_adjustement.max_iter;
+  params.setVerbosityLM("SUMMARY");
+  LevenbergMarquardtOptimizer opt(graph, values, params);
+  Values result = opt.optimize();
+  for (const auto &key : result.keys()) {
+    Symbol s(key);
+    if (s.chr() == 'x') {
+      // should guard this to make sure result is ok
+      std::size_t min_opt = *std::min_element(kf_optimized_indices.begin(),
+                                              kf_optimized_indices.end());
+      if (s.index() < min_opt)
+        continue; // dont rewrite the older poses
+      KeyframeId kf_id = static_cast<KeyframeId>(s.index());
+      Keyframe &kf = keyframes.at(kf_id_to_index.at(kf_id));
+      Pose3 T = result.at<Pose3>(X(s.index()));
+      kf.pose = lie::SE3(T.matrix());
+    }
+    if (s.chr() == 'l') {
+      LandmarkId lndmrk_id = static_cast<LandmarkId>(s.index());
+      Landmark &lndmrk = landmarks.at(lndmrk_id);
+      lndmrk.position = result.at<Point3>(L(s.index()));
     }
   }
 }
@@ -335,8 +571,9 @@ Estimator::process_features(const slam_types::ImageFeatures &image_feats) {
         Eigen::Vector3d p_LinC = backproject_(uv, depth);
 
         // Backproject to obtain p_LinC
+        Eigen::Vector3d p_LinW = T_CtoW * p_LinC;
         slam_types::Landmark lndmrk(
-            lndmrk_id, p_LinC, std::vector<slam_types::KeyframeId>{key_id});
+            lndmrk_id, p_LinW, std::vector<slam_types::KeyframeId>{key_id});
 
         landmarks.emplace(lndmrk_id, lndmrk);
         // std::cout << "Inserting: Feat ID: " << downsampled.ids.at(i) << ", "
@@ -392,6 +629,8 @@ Estimator::process_features(const slam_types::ImageFeatures &image_feats) {
       // this is a little bit annoying because
       // creating kf has to be done in lockstep w/
       // updating keyframe ids.
+      // since we chose to have keyframes as vector..
+      // maybe should keep keyframe IDs as vector and keyframes through map?
       slam_types::KeyframeId kf_id{
           static_cast<std::uint64_t>(keyframes.back().id) + 1};
 
@@ -403,7 +642,6 @@ Estimator::process_features(const slam_types::ImageFeatures &image_feats) {
 
       // update the old landmarks that they have
       // been observed in this keyframe
-
       for (auto &[id, lndmrk] : landmarks)
         lndmrk.num_frames_since_last_obs++;
 
@@ -412,54 +650,26 @@ Estimator::process_features(const slam_types::ImageFeatures &image_feats) {
         landmarks.at(lndmrk_idx).observed_in.emplace_back(kf_id);
         landmarks.at(lndmrk_idx).num_frames_since_last_obs = 0;
       }
-
-      // Cull landmarks
-      // Have not seen landmark many times +
-      // have not seen landmark in a while
-      std::vector<slam_types::LandmarkId> lndmrks_to_erase;
-
-      for (auto &[lndmrk_id, lndmrk] : landmarks) {
-        bool delete_landmark = lndmrk.observed_in.size() <
-                                   opts.lndmrk_culling.min_num_observations &&
-                               lndmrk.num_frames_since_last_obs >
-                                   opts.lndmrk_culling.num_frames_before_drop;
-        if (delete_landmark)
-          lndmrks_to_erase.push_back(lndmrk_id);
-      }
-
-      for (const auto &lndmrk_id : lndmrks_to_erase) {
-        for (const auto &kf_id : landmarks.at(lndmrk_id).observed_in) {
-          int kf_index = kf_id_to_index.at(kf_id);
-          keyframes.at(kf_index).delete_landmark(lndmrk_id);
-        }
-        landmarks.erase(lndmrk_id);
-      }
+      cullLandmarks();
 
       slam_types::ImageFeatures unmatched_all =
           image_feats.get_subset(result.unmatched_features);
       slam_types::ImageFeatures unmatched = downsample_to_grid_(unmatched_all);
 
-      for (size_t i = 0; i < unmatched.uv.size(); i++) {
-        double depth = unmatched.depths.at(i);
-        if (std::isnan(depth))
-          continue;
-        const Eigen::Vector2d &uv = unmatched.uv.at(i);
-        slam_types::LandmarkId lndmrk_id =
-            slam_types::increment_id(latest_landmark_id);
-        latest_landmark_id = lndmrk_id;
-        slam_types::Landmark lndmrk(lndmrk_id, T_CtoW * backproject_(uv, depth),
-                                    std::vector<slam_types::KeyframeId>{kf_id});
-        landmarks.emplace(lndmrk_id, lndmrk);
-        // std::cout << "Landmark ID: " <<
-        // static_cast<std::uint64_t>(lndmrk_id)
-        //           << " Feat ID " << unmatched.ids.at(i) << std::endl;
-        keyframes.back().add_landmark_feature_correspondence(
-            lndmrk_id, unmatched.ids.at(i));
-      }
-
-      // add landmarks to keyframe
+      newLandmarksFromUnmatched(unmatched, T_CtoW, kf_id);
+    }
+    if (opts.test_mode) {
+      for (const auto &[l_id, lndmrk] : landmarks)
+        checkLandmark2KeyframeObservations(keyframes, lndmrk, kf_id_to_index);
+      for (const auto &kf : keyframes)
+        checkKeyframe2LandmarkObservations(kf, landmarks);
     }
 
+    // Now run bundle adjustment.
+    if (keyframes.size() >= opts.bundle_adjustement.window_size &&
+        (keyframes.size() % opts.bundle_adjustement.run_every_num_frames == 0))
+      bundleAdjustment();
+    T_CtoW = keyframes.back().pose;
     return SE3State(image_feats.stamp, T_CtoW);
   } else {
     std::cout << "PnP Failed, returining nullopt" << std::endl;

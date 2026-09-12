@@ -16,6 +16,8 @@ FetchContent_Declare(rerun_sdk URL
   https://github.com/rerun-io/rerun/releases/latest/download/rerun_cpp_sdk.zip)
 FetchContent_MakeAvailable(rerun_sdk)
 
+find_package(GTSAM REQUIRED)
+
 enable_testing()
 add_subdirectory(cpp)
 add_subdirectory(cpp/tests)

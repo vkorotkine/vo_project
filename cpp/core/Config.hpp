@@ -8,6 +8,7 @@ namespace slam_core {
 // TODO Have to expose downsample settings to constructor :)
 struct EstimatorOptions {
 public:
+  bool test_mode = true;
   struct RansacPnP {
     int iterationsCount = 100;
     float reprojectionError = 3.0F;
@@ -18,6 +19,23 @@ public:
     int subsample_grid_width = 32;
     int subsample_grid_height = 32;
     int grid_num_points_per_cell = 20;
+  };
+
+  struct BundleAdjustement {
+    bool enabled = true;
+    // in keyframes
+    int window_size = 10;
+    int run_every_num_frames = 5;
+    int start_running_at_keyframe =
+        10; // after how many keyframes we start running this
+    double fake_baseline_rgbd = 0.3;
+    double stereo_noise = 5;
+    // How far away do keyframes have to be
+    // that optimzie landmark, for landmark to get added to problem
+    double parallax_threshold = 0.01;
+    double pixel_noise_stdev = 1;
+    double prior_noise_stdev = 0.001;
+    int max_iter = 8;
   };
 
   // If we move a lot, new keyframe.
@@ -61,6 +79,7 @@ public:
   KeyFrameInsertion keyframe_opts;
   Matching matching_opts;
   LandmarkCulling lndmrk_culling;
+  BundleAdjustement bundle_adjustement;
 };
 
 struct DataOptions {

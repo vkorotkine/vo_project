@@ -79,6 +79,23 @@ struct CameraIntrinsics {
                    int height_, std::array<double, 5> distortion_)
       : fx(fx_), fy(fy_), cx(cx_), cy(cy_), width(width_), height(height_),
         distortion(distortion_){};
+
+  Eigen::Vector2d project_undistorted(const Eigen::Vector3d &p_LinC) const {
+    Eigen::Vector2d uv;
+    uv(0) = fx * p_LinC(0) / p_LinC(2) + cx;
+    uv(1) = fy * p_LinC(1) / p_LinC(2) + cy;
+    return uv;
+  }
+
+  Eigen::Vector3d backproject(const Eigen::Vector2d &uv, double depth) {
+    // depth in meters. uv in pixels.
+    // returns relative point position in camera frame.
+    // Camera frame convention
+    double x = (uv[0] - cx) / fx * depth;
+    double y = (uv[1] - cy) / fy * depth;
+    Eigen::Vector3d p_LinC = Eigen::Vector3d{x, y, depth};
+    return p_LinC;
+  }
 };
 
 struct ImageFeature {
@@ -122,7 +139,7 @@ struct ImageFeatures {
     return std::count_if(depths.begin(), depths.end(),
                          [](double a) { return !std::isnan(a); });
   }
-  ImageFeature get_single_feature(size_t idx) {
+  ImageFeature get_single_feature(size_t idx) const {
     ImageFeature feat =
         ImageFeature{stamp, ids.at(idx), uv.at(idx), depths.at(idx),
                      descriptors.row(idx).clone()};

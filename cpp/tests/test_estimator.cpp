@@ -90,6 +90,8 @@ TEST(Estimator, BackProject) {
       DataOptions("/home/datasets/tum/rgbd_dataset_freiburg1_xyz", "tum", 0.2),
       FrontendOptions(1000, 5, 4, 0.2));
   Estimator estimator = Estimator(cfg.estimator_options, intrinsics);
+  Eigen::Vector3d p_LinC{1, 2, 3};
+  std::cout << p_LinC.transpose() << std::endl;
 }
 // As an integration test, we will later run this thing over
 // whole dataset. Would need to load ground truth into DS too.
@@ -128,8 +130,6 @@ TEST(Estimator, PnPTUM) {
       525, 525, 319.5, 239.5, 640, 480, std::array{0., 0., 0., 0., 0.});
   Estimator estimator = Estimator(cfg.estimator_options, intrinsics);
   Frontend frontend = Frontend(cfg.frontend_options);
-
-  std::cout << "Test 1 PnP" << std::endl;
 
   // Test 1: Make sure that with same image being processed, the result is
   // identity transformation.
