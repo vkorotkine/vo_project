@@ -1,6 +1,6 @@
 ## A Small Project for Visual Odometry
 A small visual odometry system. 
-RGBD data is used to localize the camera displacement. 
+RGBD data is used to localize the camera displacement. The following video shows the system running on a sequence of the TUM dataset. The 3D landmarks are colored based on the amount of times they have been observed (red - once, and they become greener as they are observed more often). 
 
 
 https://github.com/user-attachments/assets/035ecf82-e8e1-45af-9921-79c0764787da
