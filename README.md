@@ -3,6 +3,27 @@ A small visual odometry system.
 RGBD data is used to localize the camera displacement. 
 
 
+https://github.com/user-attachments/assets/035ecf82-e8e1-45af-9921-79c0764787da
+
+
+The system can run in pure PnP-type localization, where landmarks are initialized from depth with PnP used to localize to them, as well as in a bundle-adjustement tracking mode. With bundle adjustement enabled,
+reprojection and depth-based stereo factors are used to optimize trajectory over a window of frames. 
+The system is tested on the first 500 frames of the ```rgbd_dataset_freiburg1_xyz``` TUM sequence.
+Resultant APEs are given by 
+
+```
+APE Rotation Error (deg): 2.24
+APE Position Error (m): 0.10
+```
+with bundle adjustement disabled. 
+
+With bundle adjustment enabled,
+```
+APE Rotation Error (deg): 2.20
+APE Position Error (m): 0.07
+```
+
+
 # Docker Container
 ```
 cd docker && docker compose up
