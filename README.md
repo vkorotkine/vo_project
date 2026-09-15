@@ -1,5 +1,6 @@
 ## A Small Project for Visual Odometry
 A small visual odometry system. 
+RGBD data is used to localize the camera displacement. 
 
 
 # Docker Container
